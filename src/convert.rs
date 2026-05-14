@@ -7,14 +7,18 @@ use ffmpeg_next::codec;
 use ffmpeg_next::encoder;
 use ffmpeg_next::format;
 use ffmpeg_next::media;
+use ffmpeg_next::rescale::TIME_BASE;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 
 use crate::error::{Result, TranscoderError};
+use crate::get_duration;
 use crate::parse_opts;
 use crate::transcode::AudioTranscoder;
 use crate::transcode::Transcoder;
 use crate::transcode::VideoTranscoder;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Converter<'a> {
     /// file extension without the separator (`.`).
     ///
@@ -95,6 +99,14 @@ impl<'a> Converter<'a> {
 
         // format::context::output::dump(&octx, 0, output_path.to_str());
 
+        let pb = ProgressBar::new(ictx.duration() as _);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {msg}").unwrap().progress_chars("##-"),
+        );
+        let total_dur = get_duration(&ictx);
+        pb.set_message(format!("0.000 / {:.3}s", total_dur));
+
         for (stream, mut packet) in ictx.packets() {
             let ist_index = stream.index();
             let ost_index = config.stream_mapping[ist_index];
@@ -107,7 +119,10 @@ impl<'a> Converter<'a> {
 
             match config.transcoders.get_mut(&ist_index) {
                 Some(transcoder) => {
-                    transcoder.transcode_packet(&mut octx, &mut packet, ost_time_base)?
+                    let pos = transcoder.transcode_packet(&mut octx, &mut packet, ost_time_base)?;
+                    let ts = pos / f64::from(TIME_BASE);
+                    pb.set_position(ts as _);
+                    pb.set_message(format!("{:.3} / {:.3}s", pos, total_dur));
                 }
                 None => {
                     // Do stream copy on other streams

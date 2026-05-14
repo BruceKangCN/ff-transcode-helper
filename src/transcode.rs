@@ -18,7 +18,7 @@ pub trait Transcoder {
         octx: &mut format::context::Output,
         packet: &mut Packet,
         ost_time_base: Rational,
-    ) -> Result<()>;
+    ) -> Result<f64>;
 
     fn flush(&mut self, octx: &mut format::context::Output, ost_time_base: Rational) -> Result<()>;
 }
@@ -92,11 +92,11 @@ impl Transcoder for VideoTranscoder {
         octx: &mut format::context::Output,
         packet: &mut Packet,
         ost_time_base: Rational,
-    ) -> Result<()> {
+    ) -> Result<f64> {
         self.send_packet_to_decoder(packet)?;
-        self.receive_and_process_decoded_frames(octx, ost_time_base)?;
+        let pos = self.receive_and_process_decoded_frames(octx, ost_time_base)?;
 
-        Ok(())
+        Ok(pos)
     }
 
     fn flush(&mut self, octx: &mut format::context::Output, ost_time_base: Rational) -> Result<()> {
@@ -122,14 +122,17 @@ impl VideoTranscoder {
         &mut self,
         octx: &mut format::context::Output,
         ost_time_base: Rational,
-    ) -> Result<()> {
+    ) -> Result<f64> {
         let mut frame = frame::Video::empty();
+        let mut pos = 0.0;
         while self.decoder.receive_frame(&mut frame).is_ok() {
             self.frame_count += 1;
             let timestamp = frame.timestamp();
 
-            // TODO: indicatif: elapsed, [frame count], timestamp
-            eprintln!("frame count : {:8}", self.frame_count);
+            if let Some(ts) = timestamp {
+                let current_ts = Rational::new(ts as _, 1);
+                pos = f64::from(current_ts * self.input_time_base);
+            }
 
             frame.set_pts(timestamp);
             frame.set_kind(picture::Type::None);
@@ -140,7 +143,7 @@ impl VideoTranscoder {
             self.receive_and_process_encoded_packets(octx, ost_time_base)?;
         }
 
-        Ok(())
+        Ok(pos)
     }
 
     fn send_frame_to_encoder(&mut self, frame: &frame::Video) -> Result<()> {
@@ -191,7 +194,7 @@ impl Transcoder for AudioTranscoder {
         octx: &mut format::context::Output,
         packet: &mut Packet,
         ost_time_base: Rational,
-    ) -> Result<()> {
+    ) -> Result<f64> {
         todo!()
     }
 

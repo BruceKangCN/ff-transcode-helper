@@ -1,4 +1,4 @@
-use ffmpeg_next::Dictionary;
+use ffmpeg_next::{Dictionary, Rational, format, rescale::TIME_BASE};
 
 pub mod convert;
 pub mod error;
@@ -21,4 +21,11 @@ pub fn parse_opts(opts: &str) -> Result<Dictionary<'_>> {
     }
 
     Ok(dict)
+}
+
+pub fn get_duration(ictx: &format::context::Input) -> f64 {
+    let raw_dur = Rational::new(ictx.duration() as _, 1);
+    let dur = raw_dur * TIME_BASE;
+
+    dur.into()
 }
