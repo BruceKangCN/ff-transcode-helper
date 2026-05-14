@@ -28,11 +28,6 @@ pub struct VideoTranscoder {
     decoder: decoder::Video,
     input_time_base: Rational,
     encoder: encoder::Video,
-    frame_count: usize,
-    // logging enabled
-    // last log frame count
-    // starting time
-    // last log time
 }
 
 impl Transcoder for VideoTranscoder {
@@ -83,7 +78,6 @@ impl Transcoder for VideoTranscoder {
             decoder,
             input_time_base,
             encoder,
-            frame_count: 0,
         })
     }
 
@@ -126,7 +120,6 @@ impl VideoTranscoder {
         let mut frame = frame::Video::empty();
         let mut pos = 0.0;
         while self.decoder.receive_frame(&mut frame).is_ok() {
-            self.frame_count += 1;
             let timestamp = frame.timestamp();
 
             if let Some(ts) = timestamp {
