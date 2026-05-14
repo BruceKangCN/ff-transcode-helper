@@ -1,22 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use ffmpeg_next::Dictionary;
-use ffmpeg_next::Rational;
-use ffmpeg_next::codec;
-use ffmpeg_next::encoder;
-use ffmpeg_next::format;
-use ffmpeg_next::media;
-use ffmpeg_next::rescale::TIME_BASE;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
+use ffmpeg_next::{Dictionary, Rational, codec, encoder, format, media, rescale::TIME_BASE};
+use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::error::{Result, TranscoderError};
-use crate::get_duration;
-use crate::parse_opts;
-use crate::transcode::AudioTranscoder;
-use crate::transcode::Transcoder;
-use crate::transcode::VideoTranscoder;
+use crate::transcode::{AudioTranscoder, Transcoder, VideoTranscoder};
+use crate::{format_progress, get_duration, parse_opts};
 
 #[derive(Debug)]
 pub struct Converter<'a> {
@@ -102,10 +92,12 @@ impl<'a> Converter<'a> {
         let pb = ProgressBar::new(ictx.duration() as _);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {msg}").unwrap().progress_chars("##-"),
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {msg}")
+                .unwrap()
+                .progress_chars("##-"),
         );
         let total_dur = get_duration(&ictx);
-        pb.set_message(format!("0.000 / {:.3}s", total_dur));
+        pb.set_message(format_progress(0.0, total_dur));
 
         for (stream, mut packet) in ictx.packets() {
             let ist_index = stream.index();
@@ -122,7 +114,7 @@ impl<'a> Converter<'a> {
                     let pos = transcoder.transcode_packet(&mut octx, &mut packet, ost_time_base)?;
                     let ts = pos / f64::from(TIME_BASE);
                     pb.set_position(ts as _);
-                    pb.set_message(format!("{:.3} / {:.3}s", pos, total_dur));
+                    pb.set_message(format_progress(pos, total_dur));
                 }
                 None => {
                     // Do stream copy on other streams
@@ -133,6 +125,8 @@ impl<'a> Converter<'a> {
                 }
             }
         }
+
+        pb.finish();
 
         // Flush encoders and decoders.
         for (ost_index, transcoder) in config.transcoders.iter_mut() {
@@ -229,7 +223,7 @@ impl<'a> Converter<'a> {
                     // Setup for stream copy for non-video and non-audio streams.
                     let mut ost = octx.add_stream(encoder::find(codec::Id::None))?;
                     ost.set_parameters(ist.parameters());
-                    // We need to set codec_tag to 0 lest we run into incopatible
+                    // We need to set codec_tag to 0 lest we run into incompatible
                     // codec tag issues when muxing into a different container
                     // format. Unfortunately there's no high level API to do this
                     // (yet).
