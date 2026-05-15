@@ -1,4 +1,4 @@
-use ffmpeg_next::{Dictionary, Packet, Rational, codec, decoder, encoder, format, frame, picture};
+use ffmpeg::{Dictionary, Packet, Rational, codec, decoder, encoder, format, frame, picture};
 
 use crate::error::{Result, TranscoderError};
 

@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use ff_transcode_helper::{Converter, parse_opts};
 
 fn main() -> Result<()> {
-    ffmpeg_next::init().context("failed to init ffmpeg")?;
+    ffmpeg::init().context("failed to init ffmpeg")?;
+    ffmpeg::log::set_level(ffmpeg::log::Level::Error);
 
     let ext = "mp4";
     let v_encoder_name = "libx265";

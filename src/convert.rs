@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use ffmpeg_next::{Dictionary, Rational, codec, encoder, format, media, rescale::TIME_BASE};
+use ffmpeg::{Dictionary, Rational, codec, encoder, format, media, rescale::TIME_BASE};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::error::{Result, TranscoderError};

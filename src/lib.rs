@@ -1,4 +1,4 @@
-use ffmpeg_next::{Dictionary, Rational, format, rescale::TIME_BASE};
+use ffmpeg::{Dictionary, Rational, format, rescale::TIME_BASE};
 
 pub mod convert;
 pub mod error;
