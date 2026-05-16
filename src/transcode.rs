@@ -58,6 +58,7 @@ impl Transcoder for VideoTranscoder {
             .encoder()
             .video()?;
         let input_time_base = ist.time_base();
+        ost.set_metadata(ist.metadata().to_owned());
         ost.set_parameters(&encoder);
         encoder.set_height(decoder.height());
         encoder.set_width(decoder.width());

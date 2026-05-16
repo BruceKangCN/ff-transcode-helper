@@ -220,8 +220,9 @@ impl<'a> Converter<'a> {
                 //     transcoders.insert(ist_index, Box::new(transcoder));
                 // }
                 media::Type::Audio | media::Type::Subtitle => {
-                    // Setup for stream copy for non-video and non-audio streams.
+                    // Setup for stream copy for subtitles
                     let mut ost = octx.add_stream(encoder::find(codec::Id::None))?;
+                    ost.set_metadata(ist.metadata().to_owned());
                     ost.set_parameters(ist.parameters());
                     // We need to set codec_tag to 0 lest we run into incompatible
                     // codec tag issues when muxing into a different container
@@ -231,7 +232,7 @@ impl<'a> Converter<'a> {
                         (*ost.parameters().as_mut_ptr()).codec_tag = 0;
                     }
                 }
-                _ => continue,
+                _ => unreachable!("only video, audio and subtitles are supposed to be processed"),
             }
 
             ost_index += 1;
