@@ -25,8 +25,9 @@ fn main() -> Result<()> {
         a_filters,
     )?;
 
-    let input = env::args().nth(1).expect("missing input");
-    converter.convert(&input)?;
+    for input in env::args().skip(1) {
+        converter.convert(&input)?;
+    }
 
     Ok(())
 }
