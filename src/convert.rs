@@ -208,7 +208,7 @@ impl<'a> Converter<'a> {
                     )?;
                     transcoders.insert(ist_index, Box::new(transcoder));
                 }
-                // TODO
+                // TODO: impl below, and remove `Audio` in next arm.
                 // media::Type::Audio => {
                 //     let transcoder = AudioTranscoder::new(
                 //         &self.a_encoder_name,
@@ -219,7 +219,7 @@ impl<'a> Converter<'a> {
                 //     )?;
                 //     transcoders.insert(ist_index, Box::new(transcoder));
                 // }
-                _ => {
+                media::Type::Audio | media::Type::Subtitle => {
                     // Setup for stream copy for non-video and non-audio streams.
                     let mut ost = octx.add_stream(encoder::find(codec::Id::None))?;
                     ost.set_parameters(ist.parameters());
@@ -231,6 +231,7 @@ impl<'a> Converter<'a> {
                         (*ost.parameters().as_mut_ptr()).codec_tag = 0;
                     }
                 }
+                _ => continue,
             }
 
             ost_index += 1;
