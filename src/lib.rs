@@ -62,18 +62,18 @@ pub fn format_progress(current: f64, total: f64) -> String {
     let t = TimeDelta::from(total);
 
     let (c, t) = if total < 60.0 {
-        let c = format!("{:5.3}", c.second);
-        let t = format!("{:5.3}", t.second);
+        let c = format!("{:6.3}", c.second);
+        let t = format!("{:6.3}", t.second);
 
         (c, t)
     } else if total < 3600.0 {
-        let c = format!("{}:{:05.3}", c.minute, c.second);
-        let t = format!("{}:{:05.3}", t.minute, t.second);
+        let c = format!("{}:{:06.3}", c.minute, c.second);
+        let t = format!("{}:{:06.3}", t.minute, t.second);
 
         (c, t)
     } else {
-        let c = format!("{}:{02}:{:05.3}", c.hour, c.minute, c.second);
-        let t = format!("{}:{02}:{:05.3}", t.hour, t.minute, t.second);
+        let c = format!("{}:{02}:{:06.3}", c.hour, c.minute, c.second);
+        let t = format!("{}:{02}:{:06.3}", t.hour, t.minute, t.second);
 
         (c, t)
     };
