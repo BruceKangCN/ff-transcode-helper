@@ -24,10 +24,10 @@ pub trait Transcoder {
 }
 
 pub struct VideoTranscoder {
+    ost_index: usize,
     decoder: decoder::Video,
     input_time_base: Rational,
     encoder: encoder::Video,
-    ost_index: usize,
 }
 
 impl Transcoder for VideoTranscoder {
@@ -74,10 +74,10 @@ impl Transcoder for VideoTranscoder {
         ost.set_parameters(&encoder);
 
         Ok(Self {
+            ost_index,
             decoder,
             input_time_base,
             encoder,
-            ost_index,
         })
     }
 
@@ -155,8 +155,8 @@ impl VideoTranscoder {
         let mut encoded = Packet::empty();
 
         while self.encoder.receive_packet(&mut encoded).is_ok() {
-            encoded.rescale_ts(self.input_time_base, ost_time_base);
             encoded.set_stream(self.ost_index);
+            encoded.rescale_ts(self.input_time_base, ost_time_base);
             encoded.write_interleaved(octx)?;
         }
 
