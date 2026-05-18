@@ -17,4 +17,7 @@ pub enum TranscoderError {
 
     #[error("Cannot find encoder `{name}`")]
     InvalidEncoderError { name: String },
+
+    #[error("No availabel formats found")]
+    NoAvailableFormatError,
 }

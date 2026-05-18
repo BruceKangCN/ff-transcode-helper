@@ -8,7 +8,6 @@ use crate::error::{Result, TranscoderError};
 use crate::transcode::{AudioTranscoder, Transcoder, VideoTranscoder};
 use crate::{format_progress, get_duration, parse_opts};
 
-#[derive(Debug)]
 pub struct Converter<'a> {
     /// file extension without the separator (`.`).
     ///
@@ -27,17 +26,15 @@ pub struct Converter<'a> {
     /// audio encoder options
     a_opts: Dictionary<'a>,
 
-    /// video filters
-    v_filters: Option<String>,
+    /// video filter specifications
+    v_filter_spec: Option<String>,
 
-    /// audio filters
-    a_filters: Option<String>,
+    /// audio filter specifications
+    a_filter_spec: Option<String>,
 }
 
 struct TaskConfig {
     stream_mapping: Vec<isize>,
-    ist_time_bases: Vec<Rational>,
-    ost_time_bases: Vec<Rational>,
     transcoders: HashMap<usize, Box<dyn Transcoder>>,
 }
 
@@ -48,14 +45,14 @@ impl<'a> Converter<'a> {
         a_encoder_name: &str,
         v_opts: Dictionary<'a>,
         a_opts: Dictionary<'a>,
-        v_filters: Option<&str>,
-        a_filters: Option<&str>,
+        v_filter_spec: Option<&str>,
+        a_filter_spec: Option<&str>,
     ) -> Result<Self> {
         let ext = ext.to_owned();
         let v_encoder_name = v_encoder_name.to_owned();
         let a_encoder_name = a_encoder_name.to_owned();
-        let v_filters = v_filters.map(|s| s.to_owned());
-        let a_filters = a_filters.map(|s| s.to_owned());
+        let v_filter_spec = v_filter_spec.map(|s| s.to_owned());
+        let a_filter_spec = a_filter_spec.map(|s| s.to_owned());
 
         Ok(Self {
             ext,
@@ -63,8 +60,8 @@ impl<'a> Converter<'a> {
             a_encoder_name,
             v_opts,
             a_opts,
-            v_filters,
-            a_filters,
+            v_filter_spec,
+            a_filter_spec,
         })
     }
 
@@ -86,6 +83,8 @@ impl<'a> Converter<'a> {
         // format::context::input::dump(&ictx, 0, Some(&input));
 
         let mut config = self.write_header(&ictx, &mut octx)?;
+        let ist_time_bases: Vec<Rational> = ictx.streams().map(|ist| ist.time_base()).collect();
+        let ost_time_bases: Vec<Rational> = octx.streams().map(|ost| ost.time_base()).collect();
 
         // format::context::output::dump(&octx, 0, output_path.to_str());
 
@@ -106,8 +105,8 @@ impl<'a> Converter<'a> {
                 continue;
             }
 
-            let ist_time_base = config.ist_time_bases[ist_index];
-            let ost_time_base = config.ost_time_bases[ost_index as usize];
+            let ist_time_base = ist_time_bases[ist_index];
+            let ost_time_base = ost_time_bases[ost_index as usize];
 
             match config.transcoders.get_mut(&ist_index) {
                 Some(transcoder) => {
@@ -129,8 +128,8 @@ impl<'a> Converter<'a> {
         pb.finish();
 
         // Flush encoders and decoders.
-        for (ost_index, transcoder) in config.transcoders.iter_mut() {
-            let ost_time_base = config.ost_time_bases[*ost_index];
+        for (&ost_index, transcoder) in config.transcoders.iter_mut() {
+            let ost_time_base = ost_time_bases[ost_index];
             transcoder.flush(&mut octx, ost_time_base)?;
         }
 
@@ -177,10 +176,7 @@ impl<'a> Converter<'a> {
         octx: &mut format::context::Output,
     ) -> Result<TaskConfig> {
         let nb_streams = ictx.nb_streams() as usize;
-
         let mut stream_mapping = vec![0isize; nb_streams];
-        let mut ist_time_bases = vec![Rational(0, 0); nb_streams];
-        let mut ost_time_bases = vec![Rational(0, 0); nb_streams];
         let mut transcoders = HashMap::<usize, Box<dyn Transcoder>>::new();
 
         let mut ost_index = 0;
@@ -196,7 +192,6 @@ impl<'a> Converter<'a> {
             }
 
             stream_mapping[ist_index] = ost_index;
-            ist_time_bases[ist_index] = ist.time_base();
             match ist_medium {
                 media::Type::Video => {
                     let transcoder = VideoTranscoder::new(
@@ -205,6 +200,7 @@ impl<'a> Converter<'a> {
                         octx,
                         ost_index as _,
                         self.v_opts.to_owned(),
+                        self.v_filter_spec.to_owned(),
                     )?;
                     transcoders.insert(ist_index, Box::new(transcoder));
                 }
@@ -216,6 +212,7 @@ impl<'a> Converter<'a> {
                 //         octx,
                 //         ost_index as _,
                 //         self.a_opts.to_owned(),
+                //         self.a_filter_spec.to_owned(),
                 //     )?;
                 //     transcoders.insert(ist_index, Box::new(transcoder));
                 // }
@@ -232,7 +229,7 @@ impl<'a> Converter<'a> {
                         (*ost.parameters().as_mut_ptr()).codec_tag = 0;
                     }
                 }
-                _ => unreachable!("only video, audio and subtitles are supposed to be processed"),
+                ty => unreachable!("expect video, audio or subtitle, got {:?}", ty),
             }
 
             ost_index += 1;
@@ -241,14 +238,8 @@ impl<'a> Converter<'a> {
         octx.set_metadata(ictx.metadata().to_owned());
         octx.write_header()?;
 
-        for ost_index in 0..octx.nb_streams() {
-            ost_time_bases[ost_index as usize] = octx.stream(ost_index as _).unwrap().time_base();
-        }
-
         Ok(TaskConfig {
             stream_mapping,
-            ist_time_bases,
-            ost_time_bases,
             transcoders,
         })
     }
