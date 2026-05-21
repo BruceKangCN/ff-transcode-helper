@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     let v_opts = parse_opts("crf=23,pix_fmt=yuv420p,preset=slow")?;
     let a_opts = parse_opts("b=256k,sample_rate=48k,sample_fmt=s16")?;
     let v_filters = None;
-    let a_filters = Some("asetnsamples=960");
+    let a_filters = Some("asetnsamples=960,aformat=sample_fmts=s16");
 
     let converter = Converter::new(
         ext,
