@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use ffmpeg::{Dictionary, Rational, codec, encoder, format, media, rescale::TIME_BASE};
+use ffmpeg::{Dictionary, Rational, codec, encoder, format, media};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::error::{Result, TranscoderError};
 use crate::transcode::{AudioTranscoder, Transcoder, VideoTranscoder};
-use crate::{format_progress, get_duration, parse_opts};
+use crate::{format_progress, get_duration, parse_opts, update_progress_bar};
 
 pub struct Converter<'a> {
     /// file extension without the separator (`.`).
@@ -111,9 +111,7 @@ impl<'a> Converter<'a> {
             match config.transcoders.get_mut(&ist_index) {
                 Some(transcoder) => {
                     let pos = transcoder.transcode_packet(&mut octx, &mut packet, ost_time_base)?;
-                    let ts = pos / f64::from(TIME_BASE);
-                    pb.set_position(ts as _);
-                    pb.set_message(format_progress(pos, total_dur));
+                    update_progress_bar(&pb, pos, total_dur);
                 }
                 None => {
                     // Do stream copy on other streams
@@ -204,19 +202,18 @@ impl<'a> Converter<'a> {
                     )?;
                     transcoders.insert(ist_index, Box::new(transcoder));
                 }
-                // TODO: impl below, and remove `Audio` in next arm.
-                // media::Type::Audio => {
-                //     let transcoder = AudioTranscoder::new(
-                //         &self.a_encoder_name,
-                //         &ist,
-                //         octx,
-                //         ost_index as _,
-                //         self.a_opts.to_owned(),
-                //         self.a_filter_spec.to_owned(),
-                //     )?;
-                //     transcoders.insert(ist_index, Box::new(transcoder));
-                // }
-                media::Type::Audio | media::Type::Subtitle => {
+                media::Type::Audio => {
+                    let transcoder = AudioTranscoder::new(
+                        &self.a_encoder_name,
+                        &ist,
+                        octx,
+                        ost_index as _,
+                        self.a_opts.to_owned(),
+                        self.a_filter_spec.to_owned(),
+                    )?;
+                    transcoders.insert(ist_index, Box::new(transcoder));
+                }
+                media::Type::Subtitle => {
                     // Setup for stream copy for subtitles
                     let mut ost = octx.add_stream(encoder::find(codec::Id::None))?;
                     ost.set_metadata(ist.metadata().to_owned());

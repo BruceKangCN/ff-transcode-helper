@@ -78,7 +78,12 @@ impl Transcoder for VideoTranscoder {
         ost.set_parameters(&encoder);
 
         let filter_graph = match filter_spec {
-            Some(spec) => Some(Self::create_filter_graph(&spec, &decoder, &encoder)?),
+            Some(spec) => Some(Self::create_filter_graph(
+                &spec,
+                &decoder,
+                &encoder,
+                input_time_base,
+            )?),
             None => None,
         };
 
@@ -98,11 +103,10 @@ impl Transcoder for VideoTranscoder {
         ost_time_base: Rational,
     ) -> Result<f64> {
         self.send_packet_to_decoder(packet)?;
-        let pos = self.receive_and_process_decoded_frames(octx, ost_time_base)?;
-
-        Ok(pos)
+        self.receive_and_process_decoded_frames(octx, ost_time_base)
     }
 
+    // TODO: flush filter
     fn flush(&mut self, octx: &mut format::context::Output, ost_time_base: Rational) -> Result<()> {
         self.send_eof_to_decoder()?;
         self.receive_and_process_decoded_frames(octx, ost_time_base)?;
@@ -118,12 +122,13 @@ impl VideoTranscoder {
         spec: &str,
         decoder: &codec::decoder::Video,
         encoder: &codec::encoder::Video,
+        input_time_base: Rational,
     ) -> Result<filter::Graph> {
         let mut filter_graph = filter::Graph::new();
 
         let args = format!(
             "time_base={}:width={}:height={}:pix_fmt={}",
-            decoder.time_base(),
+            input_time_base,
             decoder.width(),
             decoder.height(),
             decoder.format().descriptor().unwrap().name()
@@ -133,7 +138,7 @@ impl VideoTranscoder {
         filter_graph.add(&filter::find("buffersink").unwrap(), "out", "")?;
         // TODO: it seems that video buffer sink does not need to set output formats or frame size. Is that true?
 
-        filter_graph.input("in", 0)?.output("out", 0)?.parse(spec)?;
+        filter_graph.output("in", 0)?.input("out", 0)?.parse(spec)?;
         filter_graph.validate()?;
 
         Ok(filter_graph)
@@ -205,7 +210,6 @@ pub struct AudioTranscoder {
     input_time_base: Rational,
     encoder: encoder::Audio,
     filter_graph: Option<filter::Graph>,
-    // TODO
 }
 
 impl Transcoder for AudioTranscoder {
@@ -285,11 +289,18 @@ impl Transcoder for AudioTranscoder {
         packet: &mut Packet,
         ost_time_base: Rational,
     ) -> Result<f64> {
-        todo!()
+        self.send_packet_to_decoder(&packet)?;
+        self.receive_and_process_decoded_frames(octx, ost_time_base)
     }
 
     fn flush(&mut self, octx: &mut format::context::Output, ost_time_base: Rational) -> Result<()> {
-        todo!()
+        self.send_eof_to_decoder()?;
+        self.receive_and_process_decoded_frames(octx, ost_time_base)?;
+        self.flush_filter_graph_if_exists(octx, ost_time_base)?;
+        self.send_eof_to_encoder()?;
+        self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+
+        Ok(())
     }
 }
 
@@ -312,11 +323,7 @@ impl AudioTranscoder {
         filter_graph.add(&filter::find("abuffer").unwrap(), "in", &args)?;
         let mut out = filter_graph.add(&filter::find("abuffersink").unwrap(), "out", "")?;
 
-        out.set_sample_format(encoder.format());
-        out.set_channel_layout(encoder.channel_layout());
-        out.set_sample_rate(encoder.rate());
-
-        filter_graph.input("in", 0)?.output("out", 0)?.parse(spec)?;
+        filter_graph.output("in", 0)?.input("out", 0)?.parse(spec)?;
 
         if let Some(codec) = encoder.codec()
             && !codec
@@ -331,5 +338,93 @@ impl AudioTranscoder {
         Ok(filter_graph)
     }
 
-    // TODO
+    fn send_packet_to_decoder(&mut self, packet: &Packet) -> Result<()> {
+        Ok(self.decoder.send_packet(packet)?)
+    }
+
+    fn receive_and_process_decoded_frames(
+        &mut self,
+        octx: &mut format::context::Output,
+        ost_time_base: Rational,
+    ) -> Result<f64> {
+        let mut decoded = frame::Audio::empty();
+        let mut pos = 0.0;
+        while self.decoder.receive_frame(&mut decoded).is_ok() {
+            let timestamp = decoded.timestamp();
+
+            if let Some(ts) = timestamp {
+                let current_ts = Rational::new(ts as _, 1);
+                pos = f64::from(current_ts * self.input_time_base);
+            }
+
+            decoded.set_pts(timestamp);
+
+            // need audio FIFO to properly split frames
+            match &mut self.filter_graph {
+                Some(graph) => {
+                    graph.get("in").unwrap().source().add(&decoded)?;
+                    let mut out = graph.get("out").unwrap(); // let `out` survive `sink`
+                    let mut sink = out.sink();
+                    let mut filtered = frame::Audio::empty();
+                    while sink.frame(&mut filtered).is_ok() {
+                        self.send_frame_to_encoder(&filtered)?;
+                        self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+                    }
+                }
+                None => {
+                    self.send_frame_to_encoder(&decoded)?;
+                    self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+                }
+            }
+        }
+
+        Ok(pos)
+    }
+
+    fn send_frame_to_encoder(&mut self, frame: &frame::Frame) -> Result<()> {
+        Ok(self.encoder.send_frame(frame)?)
+    }
+
+    fn receive_and_process_encoded_packets(
+        &mut self,
+        octx: &mut format::context::Output,
+        ost_time_base: Rational,
+    ) -> Result<()> {
+        let mut encoded = Packet::empty();
+
+        while self.encoder.receive_packet(&mut encoded).is_ok() {
+            encoded.set_stream(self.ost_index);
+            encoded.rescale_ts(self.input_time_base, ost_time_base);
+            encoded.write_interleaved(octx)?;
+        }
+
+        Ok(())
+    }
+
+    fn send_eof_to_decoder(&mut self) -> Result<()> {
+        Ok(self.decoder.send_eof()?)
+    }
+
+    fn flush_filter_graph_if_exists(
+        &mut self,
+        octx: &mut format::context::Output,
+        ost_time_base: Rational,
+    ) -> Result<()> {
+        if let Some(graph) = &mut self.filter_graph {
+            graph.get("in").unwrap().source().flush()?;
+            let mut out = graph.get("out").unwrap(); // let `out` survive `sink`
+            let mut sink = out.sink();
+            let mut filtered = frame::Audio::empty();
+            while sink.frame(&mut filtered).is_ok() {
+                self.send_frame_to_encoder(&filtered)?;
+                self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn send_eof_to_encoder(&mut self) -> Result<()> {
+        Ok(self.encoder.send_eof()?)
+    }
 }

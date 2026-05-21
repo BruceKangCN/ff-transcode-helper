@@ -1,4 +1,5 @@
 use ffmpeg::{Dictionary, Rational, format, rescale::TIME_BASE};
+use indicatif::ProgressBar;
 
 pub mod convert;
 pub mod error;
@@ -57,7 +58,7 @@ impl From<f64> for TimeDelta {
 ///
 /// If `total` is less than 1 hour (3600 seconds), hour part will be omitted. If
 /// `total` is less than 1 minute (60 seconds), minute part will also be omitted.
-pub fn format_progress(current: f64, total: f64) -> String {
+fn format_progress(current: f64, total: f64) -> String {
     let c = TimeDelta::from(current);
     let t = TimeDelta::from(total);
 
@@ -79,4 +80,10 @@ pub fn format_progress(current: f64, total: f64) -> String {
     };
 
     format!("{} / {}", c, t)
+}
+
+fn update_progress_bar(pb: &ProgressBar, current: f64, total: f64) {
+    let ts = current / f64::from(TIME_BASE);
+    pb.set_position(ts as _);
+    pb.set_message(format_progress(current, total));
 }
