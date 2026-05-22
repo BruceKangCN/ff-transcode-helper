@@ -63,8 +63,8 @@ impl Transcoder for VideoTranscoder {
         let input_time_base = ist.time_base();
         ost.set_metadata(ist.metadata().to_owned());
         ost.set_parameters(&encoder);
-        encoder.set_height(decoder.height());
         encoder.set_width(decoder.width());
+        encoder.set_height(decoder.height());
         encoder.set_aspect_ratio(decoder.aspect_ratio());
         encoder.set_format(decoder.format());
         encoder.set_frame_rate(decoder.frame_rate());
@@ -78,12 +78,7 @@ impl Transcoder for VideoTranscoder {
         ost.set_parameters(&encoder);
 
         let filter_graph = match filter_spec {
-            Some(spec) => Some(Self::create_filter_graph(
-                &spec,
-                &decoder,
-                &encoder,
-                input_time_base,
-            )?),
+            Some(spec) => Some(Self::create_filter_graph(&spec, &decoder, input_time_base)?),
             None => None,
         };
 
@@ -106,10 +101,10 @@ impl Transcoder for VideoTranscoder {
         self.receive_and_process_decoded_frames(octx, ost_time_base)
     }
 
-    // TODO: flush filter
     fn flush(&mut self, octx: &mut format::context::Output, ost_time_base: Rational) -> Result<()> {
         self.send_eof_to_decoder()?;
         self.receive_and_process_decoded_frames(octx, ost_time_base)?;
+        self.flush_filter_graph_if_exists(octx, ost_time_base)?;
         self.send_eof_to_encoder()?;
         self.receive_and_process_encoded_packets(octx, ost_time_base)?;
 
@@ -121,7 +116,6 @@ impl VideoTranscoder {
     fn create_filter_graph(
         spec: &str,
         decoder: &codec::decoder::Video,
-        encoder: &codec::encoder::Video,
         input_time_base: Rational,
     ) -> Result<filter::Graph> {
         let mut filter_graph = filter::Graph::new();
@@ -136,7 +130,6 @@ impl VideoTranscoder {
 
         filter_graph.add(&filter::find("buffer").unwrap(), "in", &args)?;
         filter_graph.add(&filter::find("buffersink").unwrap(), "out", "")?;
-        // TODO: it seems that video buffer sink does not need to set output formats or frame size. Is that true?
 
         filter_graph.output("in", 0)?.input("out", 0)?.parse(spec)?;
         filter_graph.validate()?;
@@ -170,10 +163,22 @@ impl VideoTranscoder {
             frame.set_pts(timestamp);
             frame.set_kind(picture::Type::None);
 
-            // TODO: implement filtering
-
-            self.send_frame_to_encoder(&frame)?;
-            self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+            match &mut self.filter_graph {
+                Some(graph) => {
+                    graph.get("in").unwrap().source().add(&frame)?;
+                    let mut out = graph.get("out").unwrap(); // let `out` survive `sink`
+                    let mut sink = out.sink();
+                    let mut filtered = frame::Video::empty();
+                    while sink.frame(&mut filtered).is_ok() {
+                        self.send_frame_to_encoder(&filtered)?;
+                        self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+                    }
+                }
+                None => {
+                    self.send_frame_to_encoder(&frame)?;
+                    self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+                }
+            }
         }
 
         Ok(pos)
@@ -198,6 +203,25 @@ impl VideoTranscoder {
             encoded.set_stream(self.ost_index);
             encoded.rescale_ts(self.input_time_base, ost_time_base);
             encoded.write_interleaved(octx)?;
+        }
+
+        Ok(())
+    }
+
+    fn flush_filter_graph_if_exists(
+        &mut self,
+        octx: &mut format::context::Output,
+        ost_time_base: Rational,
+    ) -> Result<()> {
+        if let Some(graph) = &mut self.filter_graph {
+            graph.get("in").unwrap().source().flush()?;
+            let mut out = graph.get("out").unwrap(); // let `out` survive `sink`
+            let mut sink = out.sink();
+            let mut filtered = frame::Video::empty();
+            while sink.frame(&mut filtered).is_ok() {
+                self.send_frame_to_encoder(&filtered)?;
+                self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+            }
         }
 
         Ok(())
@@ -230,7 +254,6 @@ impl Transcoder for AudioTranscoder {
         let decoder = codec::Context::from_parameters(ist.parameters())?
             .decoder()
             .audio()?;
-        // TODO: decoder.set_parameters(input_params), is this necessary?
 
         let codec =
             encoder::find_by_name(encoder_name).ok_or(TranscoderError::InvalidEncoderError {
@@ -359,7 +382,6 @@ impl AudioTranscoder {
 
             decoded.set_pts(timestamp);
 
-            // need audio FIFO to properly split frames
             match &mut self.filter_graph {
                 Some(graph) => {
                     graph.get("in").unwrap().source().add(&decoded)?;
@@ -401,10 +423,6 @@ impl AudioTranscoder {
         Ok(())
     }
 
-    fn send_eof_to_decoder(&mut self) -> Result<()> {
-        Ok(self.decoder.send_eof()?)
-    }
-
     fn flush_filter_graph_if_exists(
         &mut self,
         octx: &mut format::context::Output,
@@ -422,6 +440,10 @@ impl AudioTranscoder {
         }
 
         Ok(())
+    }
+
+    fn send_eof_to_decoder(&mut self) -> Result<()> {
+        Ok(self.decoder.send_eof()?)
     }
 
     fn send_eof_to_encoder(&mut self) -> Result<()> {

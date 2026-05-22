@@ -10,10 +10,10 @@ fn main() -> Result<()> {
     let ext = "mp4";
     let v_encoder_name = "libx265";
     let a_encoder_name = "libopus";
-    let v_opts = parse_opts("crf=23,pix_fmt=yuv420p,preset=slow")?;
+    let v_opts = parse_opts("crf=23,pixel_format=yuv420p,color_range=tv,preset=slow")?;
     let a_opts = parse_opts("b=256k,sample_rate=48k,sample_fmt=s16")?;
-    let v_filters = None;
-    let a_filters = Some("asetnsamples=960,aformat=sample_fmts=s16");
+    let v_filter_spec = Some("format=pix_fmts=yuv420p:color_ranges=tv");
+    let a_filter_spec = Some("asetnsamples=960,aresample=48k,aformat=sample_fmts=s16");
 
     let converter = Converter::new(
         ext,
@@ -21,8 +21,8 @@ fn main() -> Result<()> {
         a_encoder_name,
         v_opts,
         a_opts,
-        v_filters,
-        a_filters,
+        v_filter_spec,
+        a_filter_spec,
     )?;
 
     for input in env::args().skip(1) {
