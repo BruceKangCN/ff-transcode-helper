@@ -1,7 +1,6 @@
 #include <stdio.h>
 
 #include <libavcodec/avcodec.h>
-#include <libavutil/avutil.h>
 
 int main(void)
 {
