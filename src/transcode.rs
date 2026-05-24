@@ -67,6 +67,14 @@ impl Transcoder for VideoTranscoder {
         encoder.set_height(decoder.height());
         encoder.set_aspect_ratio(decoder.aspect_ratio());
         encoder.set_format(decoder.format());
+        encoder.set_colorspace(decoder.color_space());
+        // HACK: `set_color_primaries` and `set_color_transfer_charateristics`
+        //       have not yet implemented for video encoder, set them manually.
+        unsafe {
+            (*encoder.as_mut_ptr()).color_primaries = (*decoder.as_ptr()).color_primaries;
+            (*encoder.as_mut_ptr()).color_trc = (*decoder.as_ptr()).color_trc;
+        }
+        encoder.set_color_range(decoder.color_range());
         encoder.set_frame_rate(Some(ist.avg_frame_rate()));
         encoder.set_time_base(input_time_base);
 
