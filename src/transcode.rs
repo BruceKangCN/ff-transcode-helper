@@ -67,7 +67,7 @@ impl Transcoder for VideoTranscoder {
         encoder.set_height(decoder.height());
         encoder.set_aspect_ratio(decoder.aspect_ratio());
         encoder.set_format(decoder.format());
-        encoder.set_frame_rate(decoder.frame_rate());
+        encoder.set_frame_rate(Some(ist.avg_frame_rate()));
         encoder.set_time_base(input_time_base);
 
         if global_header {

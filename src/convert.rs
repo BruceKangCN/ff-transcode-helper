@@ -80,13 +80,9 @@ impl<'a> Converter<'a> {
         let mut ictx = format::input(&input_path)?;
         let mut octx = format::output(&output_path)?;
 
-        // format::context::input::dump(&ictx, 0, Some(&input));
-
         let mut config = self.write_header(&ictx, &mut octx)?;
         let ist_time_bases: Vec<Rational> = ictx.streams().map(|ist| ist.time_base()).collect();
         let ost_time_bases: Vec<Rational> = octx.streams().map(|ost| ost.time_base()).collect();
-
-        // format::context::output::dump(&octx, 0, output_path.to_str());
 
         let pb = ProgressBar::new(ictx.duration() as _);
         pb.set_style(
@@ -111,7 +107,10 @@ impl<'a> Converter<'a> {
             match config.transcoders.get_mut(&ist_index) {
                 Some(transcoder) => {
                     let pos = transcoder.transcode_packet(&mut octx, &mut packet, ost_time_base)?;
-                    update_progress_bar(&pb, pos, total_dur);
+                    // use the 1st stream to update progress status
+                    if ost_index == 0 {
+                        update_progress_bar(&pb, pos, total_dur);
+                    }
                 }
                 None => {
                     // Do stream copy on other streams
