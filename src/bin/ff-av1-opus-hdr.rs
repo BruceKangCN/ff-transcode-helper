@@ -10,7 +10,7 @@ fn main() -> Result<()> {
     let ext = "webm";
     let v_encoder_name = "libsvtav1";
     let a_encoder_name = "libopus";
-    let v_opts = parse_opts("crf=25,pixel_format=yuv420p10le,color_range=tv,preset=4")?;
+    let v_opts = parse_opts("crf=25,pixel_format=yuv420p10le,color_range=tv,preset=4,svtav1-params=threads=0")?;
     let a_opts = parse_opts("b=256k,sample_rate=48k,sample_fmt=s16")?;
     let v_filter_spec = Some("format=pix_fmts=yuv420p10le:color_ranges=tv");
     let a_filter_spec = Some("asetnsamples=960,aresample=48k,aformat=sample_fmts=s16");
